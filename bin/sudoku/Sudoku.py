@@ -2,7 +2,7 @@ from .Cell import CellState, Cell
 from .Coordinate import Coordinate
 from .Grid import Grid
 from .tools.Printer import Printer
-from ..tools.Console import Console, StyledText, Color, Style, BackgroundColor
+from ..tools.Console import Console, StyledText, Color, Style
 
 
 class Sudoku:
@@ -10,15 +10,12 @@ class Sudoku:
         self.number_steps = 0
         self.number_loop = 0
         self.numbers = [[0, x] for x in range(1, 10)]
-        self.grid = Grid(9)
         if len(start_grid) != 9:
             raise Exception("Grid size does not match")
         for y in range(9):
             if len(start_grid[y]) != 9:
                 raise Exception("Grid size does not match")
-            for x in range(9):
-                self.grid.cells[y][x].value = start_grid[y][x]
-                self.grid.cells[y][x].given = start_grid[y][x] != 0
+        self.grid = Grid(9, start_grid)
 
         if not self.verify():
             self.print()
@@ -28,6 +25,11 @@ class Sudoku:
         if grid is None:
             grid = self.grid
         Printer.print(grid)
+
+    def print_xl(self, grid: Grid = None):
+        if grid is None:
+            grid = self.grid
+        Printer.print_xl(grid)
 
     def print_information(self):
         Console.println(StyledText("╔═══╦═══╦═══╦═══╦═══╦═══╦═══╦═══╦═══╗", Style(Color.GREY)))
@@ -47,21 +49,14 @@ class Sudoku:
         Console.println(StyledText("║", Style(Color.GREY)))
         Console.println(StyledText("╚═══╩═══╩═══╩═══╩═══╩═══╩═══╩═══╩═══╝", Style(Color.GREY)))
 
-    def get_cell(self, row: int, col: int) -> Cell:
-        if row < 0 or row >= 9:
-            raise Exception("Row out of bounds")
-        if col < 0 or col >= 9:
-            raise Exception("Column out of bounds")
-        return self.grid.cells[row][col]
-
     def set_cell(self, coordinate: Coordinate, value: int):
         if coordinate.row < 0 or coordinate.row >= 9:
             raise Exception("Row out of bounds")
         if coordinate.col < 0 or coordinate.col >= 9:
             raise Exception("Column out of bounds")
-        self.grid.cells[coordinate.row][coordinate.col].value = value
-        print("Loop " + str(self.number_loop) + " - Action: set cell (" + str(coordinate.row) + ", " + str(coordinate.col) + ") to " + str(value))
+        self.grid.cells[coordinate.row][coordinate.col].set_value(value)
         self.number_steps += 1
+        self.__set_possible_values(value)
         for i in self.numbers:
             if i[1] == value:
                 i[0] += 1
@@ -89,9 +84,9 @@ class Sudoku:
                 return self.grid.cells[row][col].state.INVALID
             if i != row and self.grid.cells[i][col].value == self.grid.cells[row][col].value:
                 return self.grid.cells[row][col].state.INVALID
-        for y in range(row - row % 3, row - row % 3 + 3):
-            for x in range(col - col % 3, col - col % 3 + 3):
-                if (y != row or x != col) and self.grid.cells[y][x].value == self.grid.cells[row][col].value:
+        for x in range(row - row % 3, row - row % 3 + 3):
+            for y in range(col - col % 3, col - col % 3 + 3):
+                if (x != row or y != col) and self.grid.cells[x][y].value == self.grid.cells[row][col].value:
                     return self.grid.cells[row][col].state.INVALID
         return self.grid.cells[row][col].state.VALID
 
@@ -102,200 +97,193 @@ class Sudoku:
                     return False
         return True
 
-    def __have_number_in_row(self, row: int, number: int) -> bool:
+    @staticmethod
+    def __get_boxs() -> list[tuple[list[int], list[int]]]:
+        mlist = []
+        for row in range(0, 9, 3):
+            for col in range(0, 9, 3):
+                rows, cols = Sudoku.__get_rows_and_cols_in_box(row, col)
+                mlist.append((rows, cols))
+        return mlist
+
+    @staticmethod
+    def __get_rows_and_cols_in_box(row: int, col: int) -> tuple[list[int], list[int]]:
+        rows = []
+        cols = []
+        for i in range(row - row % 3, row - row % 3 + 3):
+            rows.append(i)
+        for j in range(col - col % 3, col - col % 3 + 3):
+            cols.append(j)
+        return rows, cols
+
+    @staticmethod
+    def __get_boxs_aligned_with_box(row: int, col: int) -> list[tuple[list[int], list[int]]]:
+        rows, cols = Sudoku.__get_rows_and_cols_in_box(row, col)
+        mlist = []
+        r = 0
+        while r < 9:
+            if r not in rows:
+                rows1, cols1 = Sudoku.__get_rows_and_cols_in_box(r, col)
+                mlist.append((rows1, cols))
+                r += 3
+            else:
+                r += 1
+        c = 0
+        while c < 9:
+            if c not in cols:
+                rows1, cols1 = Sudoku.__get_rows_and_cols_in_box(row, c)
+                mlist.append((rows, cols1))
+                c += 3
+            else:
+                c += 1
+        return mlist
+
+    def __get_cells_in_box(self, row: int, col: int) -> list[Cell]:
+        rows, cols = self.__get_rows_and_cols_in_box(row, col)
+        cells = []
+        for r in rows:
+            for c in cols:
+                cells.append(self.grid.cells[r][c])
+        return cells
+
+    def __get_available_cells_in_box(self, row: int, col: int) -> list[Cell]:
+        cells = self.__get_cells_in_box(row, col)
+        available_cells = []
+        for cell in cells:
+            if cell.value == 0:
+                available_cells.append(cell)
+        return available_cells
+
+    def __get_available_cells_in_box_where_number_is_possible(self, row: int, col: int, number: int) -> list[Cell]:
+        cells = self.__get_available_cells_in_box(row, col)
+        available_cells = []
+        for cell in cells:
+            if cell.is_possible_value(number):
+                available_cells.append(cell)
+        return available_cells
+
+    def __number_is_in_row(self, row: int, number: int) -> bool:
         for col in range(9):
             if self.grid.cells[row][col].value == number:
                 return True
         return False
 
-    def __have_number_in_col(self, col: int, number: int) -> bool:
+    def __number_is_in_col(self, col: int, number: int) -> bool:
         for row in range(9):
             if self.grid.cells[row][col].value == number:
                 return True
         return False
 
-    def __have_number_in_3x3(self, rows: list[int], cols: list[int], number: int) -> bool:
-        for row in rows:
-            for col in cols:
-                if self.grid.cells[row][col].value == number:
+    def __number_is_in_box(self, row: int, col: int, number: int) -> bool:
+        rows, cols = self.__get_rows_and_cols_in_box(row, col)
+        for r in rows:
+            for c in cols:
+                if self.grid.cells[r][c].value == number:
                     return True
         return False
 
-    def number_of_available_cases_in_3x3(self, number: int, rows: list[int], cols: list[int]) -> list[Coordinate]:
-        number_of_available_cases = []
-        if self.__have_number_in_3x3(rows, cols, number):
-            return []
-        for row in rows:
-            for col in cols:
-                if self.grid.cells[row][col].value == number:
-                    return []
-                if self.grid.cells[row][col].value == 0:
-                    if not (self.__have_number_in_row(row, number) or self.__have_number_in_col(col, number)):
-                        number_of_available_cases.append(Coordinate(row, col))
-        return number_of_available_cases
-
-    def number_of_available_cases_in_3x3_new(self, number: int, rows: list[int], cols: list[int]) -> list[Coordinate]:
-        number_of_available_cases = []
-        for row in rows:
-            for col in cols:
-                if self.grid.cells[row][col].value == number:
-                    return []
-                if self.grid.cells[row][col].value == 0:
-                    can_be_placed = not (self.__have_number_in_row(row, number) or self.__have_number_in_col(col, number))
-
-                    if can_be_placed:
-                        self.grid.cells[row][col].background = BackgroundColor.GREEN
-                        number_of_available_cases.append(Coordinate(row, col))
-                    else:
-                        self.grid.cells[row][col].background = BackgroundColor.RED
-
-        return number_of_available_cases
-
-    def __all_cases_available_in_3x3_are_in_same_row(self, cases: list[Coordinate]) -> bool:
-        row = cases[0].row
-        for case in cases:
-            if case.row != row:
-                return False
-        return True
-
-    def __all_cases_available_in_3x3_are_in_same_column(self, cases: list[Coordinate]) -> bool:
-        col = cases[0].col
-        for case in cases:
-            if case.col != col:
-                return False
-        return True
-
-    def number_of_available_cases_in_9x9(self, i: int) -> list[Coordinate]:
-        number_of_available_cases = []
-        for row in range(9):
-            if self.__have_number_in_row(row, i):
-                continue
-            for col in range(9):
-                if self.__have_number_in_col(col, i):
-                    continue
-                coordinate = Coordinate(row, col)
-                rows, cols = self.__get_rows_and_cols(coordinate)
-                coordinates = self.number_of_available_cases_in_3x3(i, rows, cols)
-                if coordinates.__len__() > 0:
-                    if self.grid.cells[row][col].value == 0:
-                        number_of_available_cases.append(coordinate)
-        return number_of_available_cases
-
-    def __filter_of_available_cases_in_9x9(self, coordinates: list[Coordinate]) -> list[Coordinate]:
-        coordinates_copy = coordinates.copy()
-        number_of_available_cases = coordinates.copy()
-        coordinates_grouped_by_3x3 = self.__group_coordinates_by_3x3(coordinates_copy)
-        for coordinates_in_3x3 in coordinates_grouped_by_3x3:
-            if coordinates_in_3x3.__len__() == 0:
-                continue
-            if self.__all_cases_available_in_3x3_are_in_same_column(coordinates_in_3x3):
-                for coo_copy in coordinates_copy:
-                    if coo_copy.col == coordinates_in_3x3[0].col:
-                        if coo_copy.row not in self.__get_rows_and_cols(coordinates_in_3x3[0])[0]:
-                            number_of_available_cases.remove(coo_copy)
-        return number_of_available_cases
-
-    def __group_coordinates_by_3x3(self, coordinates: list[Coordinate]) -> list[list[Coordinate]]:
-        coordinates_grouped_by_3x3 = [[], [], [], [], [], [], [], [], []]
-        for coordinate in coordinates:
-            rows, cols = self.__get_rows_and_cols(coordinate)
-            coordinates_grouped_by_3x3[rows[0] // 3 * 3 + cols[0] // 3].append(coordinate)
-        return coordinates_grouped_by_3x3
-
-    def number_of_available_cases_in_row_for_number(self, row: int, number: int) -> list[Coordinate]:
-        if self.__have_number_in_row(row, number):
-            return []
-        number_of_available_cases = []
+    def __count_number_of_possible_values_in_row(self, row: int, number: int) -> int:
+        count = 0
         for col in range(9):
-            if self.grid.cells[row][col].value == 0:
-                if not self.__have_number_in_col(col, number):
-                    number_of_available_cases.append(Coordinate(row, col))
-        return number_of_available_cases
+            if self.grid.cells[row][col].value == 0 and self.grid.cells[row][col].is_possible_value(number):
+                count += 1
+        return count
 
-    def number_of_available_cases_in_col_for_number(self, col: int, number: int) -> list[Coordinate]:
-        if self.__have_number_in_col(col, number):
-            return []
-        number_of_available_cases = []
+    def __count_number_of_possible_values_in_col(self, col: int, number: int) -> int:
+        count = 0
         for row in range(9):
-            if self.grid.cells[row][col].value == 0:
-                if not self.__have_number_in_row(row, number):
-                    number_of_available_cases.append(Coordinate(row, col))
-        return number_of_available_cases
+            if self.grid.cells[row][col].value == 0 and self.grid.cells[row][col].is_possible_value(number):
+                count += 1
+        return count
 
-    def __get_rows_and_cols(self, coordinate: Coordinate) -> tuple[list[int], list[int]]:
-        if coordinate.row < 3:
-            rows = [0, 1, 2]
-        elif coordinate.row < 6:
-            rows = [3, 4, 5]
-        else:
-            rows = [6, 7, 8]
+    def __count_number_of_possible_values_in_box(self, row: int, col: int, number: int) -> int:
+        count = 0
+        rows, cols = self.__get_rows_and_cols_in_box(row, col)
+        for r in rows:
+            for c in cols:
+                if self.grid.cells[r][c].value == 0 and self.grid.cells[r][c].is_possible_value(number):
+                    count += 1
+        return count
 
-        if coordinate.col < 3:
-            cols = [0, 1, 2]
-        elif coordinate.col < 6:
-            cols = [3, 4, 5]
-        else:
-            cols = [6, 7, 8]
+    def __all_possible_values_are_in_same_row_in_box(self, row: int, col: int, number: int) -> int:
+        cells = self.__get_available_cells_in_box_where_number_is_possible(row, col, number)
+        if len(cells) == 0:
+            return -1
+        r = cells[0].coordinate.row
+        for cell in cells:
+            if cell.coordinate.row != r:
+                return -1
+        return r
 
-        return rows, cols
+    def __all_possible_values_are_in_same_col_in_box(self, row: int, col: int, number: int) -> int:
+        cells = self.__get_available_cells_in_box_where_number_is_possible(row, col, number)
+        if len(cells) == 0:
+            return -1
+        c = cells[0].coordinate.col
+        for cell in cells:
+            if cell.coordinate.col != c:
+                return -1
+        return c
 
-    def __get_other_rows_and_cols(self, coordinate: Coordinate) -> tuple[list[int], list[int]]:
-        if coordinate.row < 3:
-            rows = [3, 4, 5, 6, 7, 8]
-        elif coordinate.row < 6:
-            rows = [0, 1, 2, 6, 7, 8]
-        else:
-            rows = [0, 1, 2, 3, 4, 5]
+    def __set_possible_values(self, number: int) -> bool:
+        changed = False
+        for row in range(9):
+            for col in range(9):
+                cell = self.grid.cells[row][col]
+                if cell.value == 0:
+                    if (self.__number_is_in_row(row, number) or self.__number_is_in_col(col, number) or self.__number_is_in_box(row, col, number)) and cell.is_possible_value(number):
+                        cell.remove_possible_value(number)
+                        changed = True
 
-        if coordinate.col < 3:
-            cols = [3, 4, 5, 6, 7, 8]
-        elif coordinate.col < 6:
-            cols = [0, 1, 2, 6, 7, 8]
-        else:
-            cols = [0, 1, 2, 3, 4, 5]
-
-        return rows, cols
-
-    def __solve_number_of_available_cases_in_3x3(self, number: int, coordinate: Coordinate):
-        rows, cols = self.__get_rows_and_cols(coordinate)
-        number_of_available_cases_in_3x3 = self.number_of_available_cases_in_3x3(number, rows, cols)
-        if len(number_of_available_cases_in_3x3) == 1:
-            self.set_cell(number_of_available_cases_in_3x3[0], number)
-            self.verify()
-
-    def __solve_number_of_available_cases_in_row(self, number: int, row: int):
-        number_of_available_cases_in_row = self.number_of_available_cases_in_row_for_number(row, number)
-        if len(number_of_available_cases_in_row) == 1:
-            self.set_cell(number_of_available_cases_in_row[0], number)
-            self.verify()
-
-    def __solve_number_of_available_cases_in_col(self, number: int, col: int):
-        number_of_available_cases_in_col = self.number_of_available_cases_in_col_for_number(col, number)
-        if len(number_of_available_cases_in_col) == 1:
-            self.set_cell(number_of_available_cases_in_col[0], number)
-            self.verify()
-
-    def __solve_number_of_available_cases_in_9x9(self, number: int):
-        number_of_available_cases = self.number_of_available_cases_in_9x9(number)
-        number_of_available_cases = self.__filter_of_available_cases_in_9x9(number_of_available_cases)
-        for group_3x3 in self.__group_coordinates_by_3x3(number_of_available_cases):
-            if group_3x3.__len__() == 1:
-                self.set_cell(group_3x3[0], number)
-                self.verify()
-
-    def solve(self):
-        self.number_loop += 1
-        if self.number_loop > 10:
-            return
-        for i in self.numbers:
-            num = i[1]
-            for row in range(9):
-                self.__solve_number_of_available_cases_in_row(num, row)
-                self.__solve_number_of_available_cases_in_col(num, row)
+        for box in self.__get_boxs():
+            rows, cols = box
+            current_row = self.__all_possible_values_are_in_same_row_in_box(rows[0], cols[0], number)
+            if current_row > -1:
                 for col in range(9):
-                    self.__solve_number_of_available_cases_in_3x3(num, Coordinate(row, col))
-            self.__solve_number_of_available_cases_in_9x9(num)
-        if self.is_done():
-            return
-        else:
-            self.solve()
+                    cell = self.grid.cells[current_row][col]
+                    if cell.value == 0 and cell.is_possible_value(number) and cell.coordinate.col not in cols:
+                        cell.remove_possible_value(number)
+                        changed = True
+            current_col = self.__all_possible_values_are_in_same_col_in_box(rows[0], cols[0], number)
+            if current_col > -1:
+                for row in range(9):
+                    cell = self.grid.cells[row][current_col]
+                    if cell.value == 0 and cell.is_possible_value(number) and cell.coordinate.row not in rows:
+                        cell.remove_possible_value(number)
+                        changed = True
+
+        return changed
+
+    def __set_values_for_number(self, number: int):
+        for row in range(9):
+            for col in range(9):
+                cell = self.grid.cells[row][col]
+                if cell.value == 0 and cell.is_possible_value(number):
+                    if self.__count_number_of_possible_values_in_row(row, number) == 1:
+                        self.set_cell(cell.coordinate, number)
+                        continue
+                    if self.__count_number_of_possible_values_in_col(col, number) == 1:
+                        self.set_cell(cell.coordinate, number)
+                        continue
+                    if self.__count_number_of_possible_values_in_box(row, col, number) == 1:
+                        self.set_cell(cell.coordinate, number)
+
+    def __set_values(self):
+        for row in range(9):
+            for col in range(9):
+                cell = self.grid.cells[row][col]
+                if cell.value == 0 and cell.len_possible_values() == 1:
+                    self.set_cell(cell.coordinate, cell.get_possible_values()[0])
+
+    def solve(self) -> bool:
+        self.number_loop += 1
+        for i in self.numbers:
+            if i[0] == 9:
+                continue
+            num = i[1]
+            print(f'Loop: {self.number_loop}, number: {num}')
+            while self.__set_possible_values(num):
+                pass
+            self.__set_values_for_number(num)
+        self.__set_values()
+        return self.is_done()
