@@ -2,6 +2,7 @@ from .Cell import CellState, Cell
 from .Coordinate import Coordinate
 from .Grid import Grid
 from .tools.Printer import Printer
+from .types.PairCell import PairCell
 from ..tools.Console import Console, StyledText, Color, Style
 
 
@@ -9,6 +10,7 @@ class Sudoku:
     def __init__(self, start_grid: list[list[int]]):
         self.number_steps = 0
         self.number_loop = 0
+        self.banned_pairs = []
         self.numbers = [[0, x] for x in range(1, 10)]
         if len(start_grid) != 9:
             raise Exception("Grid size does not match")
@@ -56,7 +58,6 @@ class Sudoku:
             raise Exception("Column out of bounds")
         self.grid.cells[coordinate.row][coordinate.col].set_value(value)
         self.number_steps += 1
-        self.__set_possible_values(value)
         for i in self.numbers:
             if i[1] == value:
                 i[0] += 1
@@ -225,6 +226,140 @@ class Sudoku:
                 return -1
         return c
 
+    def __count_number_of_pair_appears_in_box(self, row: int, col: int, pair: tuple[int, int]) -> int:
+        cells = self.__get_available_cells_in_box(row, col)
+        count = 0
+        for cell in cells:
+            pairs = cell.get_possible_values_as_pairs()
+            if pair in pairs:
+                count += 1
+        return count
+
+    def __find_hidden_pairs_in_box(self, rows: list[int], cols: list[int]) -> list[PairCell]:
+        cells = self.__get_available_cells_in_box(rows[0], cols[0])
+        cells_as_pairs = []
+        for cell in cells:
+            for cell2 in cells:
+                if cell != cell2:
+                    if (cell, cell2) not in cells_as_pairs and (cell2, cell) not in cells_as_pairs:
+                        cells_as_pairs.append((cell, cell2))
+
+        tempo_pairs = []
+        for pair in cells_as_pairs:
+            cell = pair[0]
+            cell_possible_values = cell.get_possible_values()
+            if len(cell_possible_values) == 1:
+                continue
+            cell_possible_values_as_pairs = cell.get_possible_values_as_pairs()
+            cell2 = pair[1]
+            cell2_possible_values = cell2.get_possible_values()
+            if len(cell2_possible_values) == 1:
+                continue
+            cell2_possible_values_as_pairs = cell2.get_possible_values_as_pairs()
+
+            pairs_occurrences = []
+            for p in cell_possible_values_as_pairs:
+                count_appears = self.__count_number_of_pair_appears_in_box(rows[0], cols[0], p)
+                if count_appears == 2:
+                    pairs_occurrences.append((p, count_appears))
+            for p in cell2_possible_values_as_pairs:
+                count_appears = self.__count_number_of_pair_appears_in_box(rows[0], cols[0], p)
+                if count_appears == 2:
+                    pairs_occurrences.append((p, count_appears))
+
+            pairs_same = []
+            pairs_banned = []
+            # Filter pairs that one of the values is in the other pair
+            for pairs_occurrence in pairs_occurrences:
+                can_add = True
+                for pairs_occurrence2 in pairs_occurrences:
+                    if pairs_occurrence != pairs_occurrence2:
+                        if pairs_occurrence[0][0] in pairs_occurrence2[0] or pairs_occurrence[0][1] in pairs_occurrence2[0]:
+                            can_add = False
+                            break
+                if can_add:
+                    if pairs_occurrence not in pairs_same and pairs_occurrence not in pairs_banned:
+                        pairs_same.append(pairs_occurrence)
+                else:
+                    if pairs_occurrence not in pairs_banned:
+                        pairs_banned.append(pairs_occurrence)
+                    if pairs_occurrence in pairs_same:
+                        pairs_same.remove(pairs_occurrence)
+
+            if len(pairs_same) == 1:
+                p = pairs_same[0][0]
+                if p in cell_possible_values_as_pairs and p in cell2_possible_values_as_pairs:
+                    tempo_pairs.append(PairCell(cell, cell2, pairs_same[0][0]))
+        pairs = []
+        for pair in tempo_pairs:
+            can_add = True
+            for pair2 in self.banned_pairs:
+                if pair.cell1 == pair2.cell1 and pair.cell2 == pair2.cell2 and pair.possible_values == pair2.possible_values:
+                    can_add = False
+                    break
+            if can_add:
+                pairs.append(pair)
+        return pairs
+
+    def __find_pairs_in_box(self, rows: list[int], cols: list[int]) -> list[PairCell]:
+        cells = self.__get_available_cells_in_box(rows[0], cols[0])
+        cells_as_pairs = []
+        for cell in cells:
+            for cell2 in cells:
+                if cell != cell2:
+                    if (cell, cell2) not in cells_as_pairs and (cell2, cell) not in cells_as_pairs:
+                        cells_as_pairs.append((cell, cell2))
+
+        pairs = []
+        for pair in cells_as_pairs:
+            cell = pair[0]
+            cell_possible_values = cell.get_possible_values()
+            if len(cell_possible_values) == 1:
+                continue
+            cell_possible_values_as_pairs = cell.get_possible_values_as_pairs()
+            cell2 = pair[1]
+            cell2_possible_values = cell2.get_possible_values()
+            if len(cell2_possible_values) == 1:
+                continue
+            cell2_possible_values_as_pairs = cell2.get_possible_values_as_pairs()
+
+            pairs_occurrences = []
+            for p in cell_possible_values_as_pairs:
+                count_appears = self.__count_number_of_pair_appears_in_box(rows[0], cols[0], p)
+                if count_appears == 2:
+                    pairs_occurrences.append((p, count_appears))
+            for p in cell2_possible_values_as_pairs:
+                count_appears = self.__count_number_of_pair_appears_in_box(rows[0], cols[0], p)
+                if count_appears == 2:
+                    pairs_occurrences.append((p, count_appears))
+
+            if len(cell_possible_values_as_pairs) == 1 and cell_possible_values_as_pairs == cell2_possible_values_as_pairs:
+                pairs.append(PairCell(cell, cell2, cell_possible_values_as_pairs[0]))
+
+
+            # TODO banned pairs
+            pairs_same = []
+            pairs_banned = []
+            # Filter pairs that one of the values is in the other pair
+            for pairs_occurrence in pairs_occurrences:
+                can_add = True
+                for pairs_occurrence2 in pairs_occurrences:
+                    if pairs_occurrence != pairs_occurrence2:
+                        if pairs_occurrence[0][0] in pairs_occurrence2[0] or pairs_occurrence[0][1] in pairs_occurrence2[0]:
+                            can_add = False
+                            break
+                if can_add:
+                    if pairs_occurrence not in pairs_same and pairs_occurrence not in pairs_banned:
+                        pairs_same.append(pairs_occurrence)
+                else:
+                    if pairs_occurrence not in pairs_banned:
+                        pairs_banned.append(pairs_occurrence)
+                    if pairs_occurrence in pairs_same:
+                        pairs_same.remove(pairs_occurrence)
+
+
+        return pairs
+
     def __set_possible_values(self, number: int) -> bool:
         changed = False
         for row in range(9):
@@ -252,6 +387,18 @@ class Sudoku:
                         cell.remove_possible_value(number)
                         changed = True
 
+            if self.number_loop > 1:
+                hidden_pairs = self.__find_hidden_pairs_in_box(box[0], box[1]) + self.__find_pairs_in_box(box[0], box[1])
+                for pair in hidden_pairs:
+                    for possible_values in pair.cell1.get_possible_values():
+                        if possible_values not in pair.possible_values:
+                            pair.cell1.remove_possible_value(possible_values)
+                            changed = True
+                    for possible_values in pair.cell2.get_possible_values():
+                        if possible_values not in pair.possible_values:
+                            pair.cell2.remove_possible_value(possible_values)
+                            changed = True
+                    self.banned_pairs.append(pair)
         return changed
 
     def __set_values_for_number(self, number: int):
@@ -281,9 +428,12 @@ class Sudoku:
             if i[0] == 9:
                 continue
             num = i[1]
+            print("//////" * 20)
             print(f'Loop: {self.number_loop}, number: {num}')
             while self.__set_possible_values(num):
                 pass
             self.__set_values_for_number(num)
-        self.__set_values()
+            self.__set_values()
+            self.print_xl()
+            self.verify()
         return self.is_done()

@@ -1,7 +1,7 @@
 from enum import Enum
 
 from bin.sudoku.Coordinate import Coordinate
-from bin.tools.Console import BackgroundColor, Color, Style
+from bin.tools.Console import BackgroundColor, Color, Style, Console, StyledText
 
 
 class Cell:
@@ -22,13 +22,12 @@ class Cell:
 
     def remove_possible_value(self, value: int):
         if value in self.__possible_values:
-            if self.coordinate.row == 7 and self.coordinate.col == 3:
-                print(f'Cell {self.coordinate} remove {value}')
+            # Console.println("Cell " + StyledText(str(self.coordinate), Style(Color.YELLOW)).__str__() + " remove " + StyledText(str(value), Style(Color.YELLOW)).__str__())
             self.__possible_values.remove(value)
 
     def set_value(self, value: int):
-        print(f'Cell {self.coordinate} set to {value}')
         self.value = value
+        Console.println("Cell " + StyledText(str(self.coordinate), Style(Color.GREEN)).__str__() + " set " + StyledText(str(value), Style(Color.GREEN)).__str__())
         if self.value == 0:
             self.state = CellState.VALID
             self.__possible_values = []
@@ -86,10 +85,22 @@ class Cell:
         return value in self.__possible_values
 
     def get_possible_values(self) -> list:
-        return self.__possible_values
+        return self.__possible_values.copy()
 
     def len_possible_values(self) -> int:
         return self.__possible_values.__len__()
+
+    def get_possible_values_as_pairs(self) -> list[tuple[int, int]]:
+        mlist = []
+        for i in self.__possible_values:
+            for j in self.__possible_values:
+                if i != j:
+                    if (i, j) not in mlist and (j, i) not in mlist:
+                        if i < j:
+                            mlist.append((i, j))
+                        else:
+                            mlist.append((j, i))
+        return mlist
 
 
 class CellState(Enum):

@@ -1,3 +1,5 @@
+import time
+
 from bin.sudoku.Cell import Cell
 from bin.sudoku.Sudoku import Sudoku
 from bin.tools.Console import Console, StyledText, Color, Style
@@ -94,11 +96,14 @@ def loop(sudoku: Sudoku):
         sudoku.print_information()
 
     sudoku.print_xl()
+    if sudoku.number_loop <= 0:
+        time.sleep(1)
+        loop(sudoku)
     exit()
 
     if not solved:
-        response = input("Press enter to continue...")
-        if response != "":
+        response = input("Continue? (y/n)")
+        if response != "y":
             exit()
         else:
             loop(sudoku)

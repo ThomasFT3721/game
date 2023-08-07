@@ -5,4 +5,4 @@ class Coordinate:
         self.col = col
 
     def __str__(self):
-        return f'(row={self.row}, col={self.col})'
+        return f'[{self.row}; {self.col}]'
